@@ -1,0 +1,479 @@
+<head>
+<!-- External scripts: -->
+<script src='https://cdn.plot.ly/plotly-4.1.1.min.js'></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.6.1/papaparse.min.js"></script>
+<!--<script src='https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.17/d3.min.js'></script>-->
+</head>
+<body style="background-color: lightblue; display: grid; place-items: center;">
+
+	<h2>Upload a CSV file to generate a 3D Scatter Plot</h2>
+	<input type="file" id="fileInput" accept=".csv">
+	<div style="text-align: right;">
+	<label for="Dropdown">Input Variable	:</label>
+    <select id="Dropdown">
+        <option value="" disabled selected>Select a feature...</option>
+    </select>
+	<br>
+	<label for="Dropdown2">Output Variable	:</label>
+    <select id="Dropdown2">
+        <option value="" disabled selected>Select a feature...</option>
+    </select>
+	</div>
+	<div style="display: flex;">
+	<div id="plot" style="width: 800px; height: 600px; background-color: whitesmoke"></div>
+	<div id="table2" style="display: grid;">
+	</div>
+	</div>
+	<div id="menu1" style="text-align: center;">
+		<button type="button" onclick="LogReg1();">[2a] 1 var Log Reg</button>
+		<br>
+		<button type="button" onclick="LogReg2();">[3a] everyvar Log Reg</button>
+		<button type="button" onclick="LogReg3(false, false, false);">[3b] selectvar Log Reg</button>
+		<br>
+		<button type="button" onclick="LogReg3(true, false, false);">[4ai] Log Reg w/ reg</button>
+		<button type="button" onclick="LogReg3(false, true, false);">[4aii] Log Reg w/ scale</button>
+		<button type="button" onclick="LogReg3(true, false, true);">[4b] Log Reg w/ sq err</button>
+	</div>
+	<div id="table"></div>
+	<script>
+		//get elements by id
+		const dropdown = document.getElementById('Dropdown');
+		const dropdown2 = document.getElementById('Dropdown2');
+
+		//putting variables in global scope so they can be accessed across functions
+		var holddat = []; //holds data when feature scaling
+		var dataRows = []; //holds data from spreadsheet
+		var xAxis = 0; //hold xaxis to be shown in graph and using in first logistic regression model
+		var yAxis = 0; //holds the criterion for which each log model calcualates
+		let xData = []; 
+		let yData = [];
+		let labels = []; //holds labels to be used inside table
+		const zData = []; //not used
+		const wData = []; //not used
+		const vData = []; //not used
+		var xCent = []; //not used
+		var yCent = []; //not used
+		var zCent = []; //not used
+		var wCent = []; //not used
+		var vCent = []; //not used
+		var lCent = null;//not used
+		var cmeans = false;//not used
+		var Q0 = new Array(dataRows.length).fill(0);//min value array to be used in feature scaling
+		var Q4 = new Array(dataRows.length).fill(0);//max value array to be used in feature scaling
+		var sorted= []; //holds array of sorted values
+		tablevals = [ //shows confusion matrix position ahead of time with these values
+			['',"P","N"],
+			["P",'',''],
+			["N",'','']
+		];
+		var tabledata1 = [{//metadata for confusion matrix table
+			type: 'table',
+			cells: {
+				values: tablevals,
+				align: 'center',
+				line: { width: 1, color: '#dddddd' },
+				fill: { color: ["#eeeeee", "#ffffff"] }
+			}
+		}];
+		var tablelayout1 = {//layout for confusion matrix table
+			title: 'Confusion Matrix',
+			width: 200,  // Dimension in pixels
+  			height: 200,  // Dimension in pixels
+			margin: { l: 20, r:20, t:20, b:20}
+		}
+		Plotly.newPlot('table', tabledata1, tablelayout1);
+
+		//access file input
+		document.getElementById('fileInput').addEventListener('change', function(e) {
+			const file = e.target.files[0];
+			if (!file) return;
+
+			// Parse the CSV file using PapaParse
+			Papa.parse(file, {
+				dynamicTyping: true, // Automatically converts numbers from strings
+				skipEmptyLines: true,
+				complete: function(results) {
+					dataRows = results.data;
+					
+					// Arrays to hold our 3D coordinates (check earlier)
+					const col = [];
+					// Loop through rows
+					dataRows[0].forEach((name, index) => {
+						//alert(name + ' ' + index);
+						const opt = document.createElement('option');
+						opt.value = index;
+						opt.textContent = name;
+						dropdown.appendChild(opt);
+						dropdown2.appendChild(opt.cloneNode(true));
+					})
+					labels=dataRows.shift();
+
+					//feilds of data to be slotted into the EDA table
+					var count = new Array(dataRows.length).fill(0);
+					var mean = new Array(dataRows.length).fill(0);
+					var std = new Array(dataRows.length).fill(0);
+					//var Q0 = new Array(dataRows.length).fill(0);
+					var Q1 = new Array(dataRows.length).fill(0);
+					var Q2 = new Array(dataRows.length).fill(0);
+					var Q3 = new Array(dataRows.length).fill(0);
+					//var Q4 = new Array(dataRows.length).fill(0);
+					var uniq = new Array(dataRows.length).fill(0);
+					var mode = new Array(dataRows.length).fill(0);
+					var modef= new Array(dataRows.length).fill(0);
+
+					//feature
+					for(i of dataRows[0].keys()) {
+						//data
+						var sum=0;
+						var data=[];
+						for(ii of dataRows.keys()) {
+							if(dataRows[ii][i]!=9 && dataRows[ii][i]!=null) {
+								data.push(dataRows[ii][i]);
+								count[i]++;
+								sum+=dataRows[ii][i];
+							}
+						}
+						//get data in order to obtain quartiles
+						sorted.push(data.toSorted());
+						mean[i]=(sum/count[i]);
+						sum = 0;
+						var newtally=0;
+						var cval=999;
+
+						//handle standard deviation while geting mode, uniq, and mode frequesncy.
+						sorted[i].forEach(val => {
+							sum+=(val-mean[i])**2;
+							if (cval==val) {
+						 		newtally++;
+						 		if (newtally>modef[i]) {
+						 			mode[i]=val;
+						 			modef[i]=newtally;
+						 		}
+						 	}
+						 	else {
+								cval=val;
+								newtally=1; 
+								uniq[i]++;
+							}
+						});
+						std[i] = (sum/(count[i]-1))**0.5;
+						
+						Q0[i]=sorted[i][0];
+
+						//function to handle getting Quartiles
+						function getmed(arr) {
+							medi = 0;
+							if (arr.length % 2) {
+								medi = arr[(arr.length-1)/2];
+								return [medi, arr.slice(0,(arr.length-1)/2), arr.slice((arr.length-1)/2+1)];
+							}
+							else {
+								medi = (arr[(arr.length)/2] + arr[(arr.length)/2-1])/2;
+								return [medi, arr.slice(0,arr.length/2), arr.slice(arr.length/2)];
+							}
+						}
+
+						//assigning quartile values
+						cut=getmed(sorted[i]);
+						Q2[i]=cut[0];
+						Q1[i]=getmed(cut[1])[0];
+						Q3[i]=getmed(cut[2])[0];
+						Q4[i]=sorted[i][sorted[i].length-1];
+					};
+					//Build table
+					var tabledata2 = [{//table metadata for EDA table
+						type: 'table',
+						header: {
+    					// Array of column header names
+    						values: ["variable", "cnt", "mean", "std", "min", "Q1", "Q2", "Q3", "max", "uniq", "mode", "modef"]
+						},
+						cells: {
+							values: [labels, count, mean, std, Q0, Q1, Q2, Q3, Q4, uniq, mode, modef],
+							format: ['','.3r'],
+							align: 'center',
+							line: { width: 1, color: '#dddddd' },
+							fill: { color: ["#eeeeee", "#ffffff"] }
+						}
+					}];
+					var tablelayout2 = {//table layout for EDA table
+						title: 'Stats',
+						width: 800,
+  						height: 600,
+						margin: { l: 20, r:20, t:20, b:20}
+					}
+
+					Plotly.newPlot('table2', tabledata2, tablelayout2);
+
+					const trace1 = {//plot metadata
+						x: xData,
+						y: yData,
+						//z: zData,
+						mode: 'markers',
+						type: 'scatter',
+						marker: {
+							size: 5,
+							opacity: 0.8,
+							//color: col, //zData, // Color mapped to Z values
+							colorscale: 'Viridis'
+						}
+					};
+
+					const trace2 = {//plot metadata #2
+						x: [],
+						y: [],
+						//z: [],
+						mode: 'markers',
+						type: 'scatter',
+						marker: {
+							size: 5,
+							opacity: 0.8,
+							color: "red"
+						}
+					};
+
+					const layout = {//plot layout
+						margin: { l: 0, r: 0, b: 0, t: 0 },
+						width: 800,
+  						height: 600,
+						scene: {
+							xaxis: { title: {text: 'x Risk' }},
+							yaxis: { title: {text: 'y No Face Contact' }},
+							zaxis: { title: {text: 'z Sick' }},
+							scene: { aspectmode: 'manual', aspectratio: {x: 1, y: 0.1, z: 1}}
+						}
+					};
+
+					Plotly.newPlot('plot', [trace1, trace2], layout);
+				},
+				error: function(err) {
+					alert("Error parsing file: " + err.message);
+				}
+			});
+		});
+		//back
+
+		//function to update plot (there are leftover variables from when this handled EDA)
+		function updateplot(skipx) {
+			xData=[];
+			yData=[];
+			var count=0;
+			var sum=0;
+			dataRows.forEach(row => {
+				if ((row[xAxis]!=9||skipx) && row[yAxis]!=9 && (row[xAxis]!=null||skipx) && row[yAxis]!=null) {
+					count++;
+					sum+=row[yAxis];
+					xData.push(row[xAxis]);
+					yData.push(row[yAxis]);
+				}
+			});
+        	const update = {
+    			x: [xData],
+    			y: [yData]
+			};
+			Plotly.restyle('plot', update, [0]);
+			return [count, sum];
+		}
+
+		//function to update plot after running logistic regression
+		function updateplot2(xarr, warr, b) {
+			var xData2=[];
+			var yData2=[];
+			var conf = [[0, 0], [0, 0]];
+			for (const i of dataRows.keys()) {
+				var yval =  dataRows[i][yAxis];
+				xData2.push(dataRows[i][xAxis]);
+				var sig = sigmoid(getx(xarr, i), warr, b);
+				var sval = Math.round(sig);
+				yData2.push(sig);
+				sval = Math.min(Math.max(Math.round(sig), 0), 1);
+				if (yval!=null && sval!=null) conf[yval][sval]++;
+			};
+        	const update = {
+    			x: [xData2],
+    			y: [yData2]
+			};
+			const update2 = {
+    			cells: {
+					values: [
+						['','P','N'],
+						['P',conf[1][1],conf[0][1]],
+						['N',conf[1][0],conf[0][0]]
+					]}
+			};
+			Plotly.restyle('plot', update, [1]);
+			Plotly.restyle('table', update2, [0]);
+			console.log('w: ' + warr + ' b: ' + b);
+		}
+
+		//update plot when xAxis is changed
+		dropdown.addEventListener("change", (event) => {
+            xAxis = event.target.value;
+			updateplot(1);
+        });
+
+		//update plot when yaxis is changed
+		dropdown2.addEventListener("change", (event) => {
+            yAxis = event.target.value;
+			var countsum = updateplot(1);
+			var count = countsum[0];
+			var sum = countsum[1];
+			var sorted = yData.toSorted();
+			disp_count.value = count;
+			var mean = sum/count;
+			disp_mean.value = mean;
+			sum=0;
+			sorted.forEach(val => {
+			sum+=(val-mean)**2;
+		})
+        });
+
+		//logistic regression between chosen x and y values
+		function LogReg1() {
+			updateplot(0);
+			var w = [0];
+			var x = [xAxis];
+			bw = graddesc(x, w, false, false);
+			
+			updateplot2(x, bw[1], bw[0]);
+		}
+
+		//logistic regression between all values and selected y value
+		function LogReg2() {
+			updateplot(0);
+			var w = [0,0,0,0,0,0,0,0,0,0,0,0];
+			var x = [0,1,2,3,4,5,6,7,8,9,10,11];
+			bw = graddesc(x, w, false, false);
+			//graph
+			
+			updateplot2(x, bw[1], bw[0]);
+			//table
+		}
+
+		//logistic regression with best 5 values for maximizing recall
+		function LogReg3(reg, scale, MSE) {
+			updateplot(0);
+			if (scale) {
+				holddat = structuredClone(dataRows);
+				for (const i of dataRows.keys()) {
+					for (const ii of dataRows[i].keys()) {
+						if (ii<12) dataRows[i][ii]=(dataRows[i][ii]-Q0[ii])/(Q4[ii]-Q0[ii]);
+					}
+				}
+			}
+			var unchosen = [0,1,2,3,4,5,6,7,8,9,10,11];
+			var chosen = [];
+			var w = [];
+			var lbw = [];
+			for (var i=0; i<5; i++) {
+				var oldrec = 0;
+				var oldind = 0;
+				chosen.push(0);
+				w.push(0);
+				for (ii of unchosen.keys()) {
+					chosen[chosen.length - 1] = ii;
+					var bw = graddesc(chosen, w, reg, MSE);
+					var conf = [[0, 0], [0, 0]];
+					for (const iii of dataRows.keys()) {
+						var yval =  dataRows[iii][yAxis];
+						var sig = sigmoid(getx(chosen, iii), bw[1], bw[0]);
+						var sval = Math.round(sig);
+						if (yval!=null && sval!=null) conf[yval][sval]++;
+					}
+					var rec = (conf[1][1])/(conf[1][1]+conf[1][0]);
+					if (rec > oldrec) {
+						oldrec = rec;
+						oldind = ii;
+						lbw = bw;
+					}
+				}
+				chosen[chosen.length - 1] = unchosen[oldind];
+				alert(chosen + ' has been chosen');
+				unchosen.splice(oldind, 1);
+			}
+			updateplot2(chosen, lbw[1], lbw[0]);
+			if (scale) dataRows = structuredClone(holddat);
+		}
+		
+		//gradient descent
+		function graddesc(x, w, reg, MSE) {
+			var b = 0;
+			var a = 0.1;
+			var l = 0.1;
+			var lastgrad = [[0]];
+			while(1) {
+				var grad = gradient(x, w, b, MSE);
+				//console.log('1: ' + grad[0][0] + ' 2: ' + grad[1]);
+				if (reg) {
+					if (Math.abs(grad[0][0]-lastgrad[0][0])<0.00000001) {
+						var check = true;
+						//for (const di of grad[1].keys()) if (Math.abs(grad[1][di]-lastgrad[1][di])>0.00000001) check =false;
+						if (check) return [b, w];
+					}
+					b = b - a * (grad[0][0] + b*l/grad[0][1]);
+					for (const i of w.keys()) w[i] = w[i] - a * (grad[1][i] + w[i]*l/grad[0][1]);
+					lastgrad=structuredClone(grad);
+				}
+				else {
+					if (Math.abs(grad[0][0])<0.0001) {
+						var check = true;
+						for (const delta of grad[1]) if (Math.abs(delta)>0.0001) check =false;
+						if (check) return [b, w];
+					}
+					b = b - a * (grad[0][0]);
+					for (const i of w.keys()) w[i] = w[i] - a * grad[1][i];
+				}
+			}
+
+		}
+
+		//gradient for gradient descent
+		function gradient(x, w, b, MSE) {
+			var dw = Array.from({ length: x.length }, () => 0);
+			var db = 0;
+			//iterate through data points (rows)
+			var count = 0;
+			for (const ii of dataRows.keys()) {
+				//FIXME possibly add check for invalid values
+				count++;
+				//iterate through features (collumns)
+				var y = dataRows[ii][yAxis];
+				var yh= sigmoid(getx(x, ii), w, b);
+				var sig = 0;
+				if (MSE) sig = - (yh-y)*yh*(1-yh);
+				else sig = - (yh-y);
+				for (const i of x.keys()) {
+					dw[i] += sig*dataRows[ii][x[i]];;
+				}
+				db += sig;
+			}
+			// iterate through columns again
+			db = db/count;
+			for (const i of x.keys()) {
+				dw[i] /= count;
+			}
+			return [[db, count], dw];
+		}
+
+		//function for getting y value of sigmoid
+		function sigmoid(x, w, b) {
+			return 1/(1+Math.E**(b+dot(x, w)));
+		}
+
+		//dot product
+		function dot(x, w) {
+			var sum=0;
+			x.forEach((value, i) => {sum+=value*w[i];});
+			return sum;
+		}
+
+		//get x values across a row of data
+		function getx(arr, index) {
+			var xax = Array.from({ length: arr.length }, () => 0);
+			for (const i of arr.keys()) {
+				xax[i] = dataRows[index][arr[i]] ;
+			}
+			return xax;
+		}
+	</script>
+</body>
+</html>
