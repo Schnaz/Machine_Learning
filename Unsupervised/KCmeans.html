@@ -1,0 +1,326 @@
+<head>
+<!-- Include D3 and Plotly via CDN -->
+<script src='https://cdn.plot.ly/plotly-4.1.1.min.js'></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.6.1/papaparse.min.js"></script>
+<!--<script src='https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.17/d3.min.js'></script>-->
+</head>
+<body style="background-color: lightblue; display: grid; place-items: center;">
+
+	<h2>Upload a CSV file to generate a 3D Scatter Plot</h2>
+	<input type="file" id="fileInput" accept=".csv">
+	<div id="plot" style="width: 800px; height: 600px; background-color: whitesmoke"></div>
+	<div id="menu1" style="display: flex; place-items: center;">
+		<button type="button" onclick="initialize();">Initialize</button>
+		<button type="button" onclick="step();">Step Forward</button>
+		<button type="button" onclick="finish();">Skip To End</button>
+	</div>
+	<div>Options:</div>
+	<div id="menu2">
+		<input type="radio" name="clustering" value="0" onclick="cmeans=false;" checked>K-means</button>
+		<br>
+		<input type="radio" name="clustering" value="1" onclick="cmeans=true;">C-means</button>
+		<br>
+	</div>
+	<div style="display: grid;">
+	<label>Clusters: <output id="dispVal1">2</output> </label> <label> <input type="range" value="2" min="1" max="10" step="1" oninput="dispVal1.value = this.value"></input> </label>
+	<label>Dimensions: <output id="dispVal2">3</output> </label> <label> <input type="range" value="3" min="3" max="5" step="1" oninput="dispVal2.value = this.value"></input> </label>
+	<label>M Value: <output id="dispVal3">2</output> </label> <label> <input type="range" value="2" min="1" max="3" step="0.1" oninput="dispVal3.value = this.value"></input> </label>
+	<label> <button onclick="dunnIndex()">Check DI validity</button> : <output id="dispVal4">press button to check</output> </label>
+
+	<script>
+		function randR(min,max) {
+			return Math.random() * (max-min) + min;}
+		function randD(data) {
+			const min = Math.min(...data);
+			//alert(data[0]);
+			const max = Math.max(...data);
+			return Math.random() * (max-min) + min;}
+		const xData = [];
+		const yData = [];
+		const zData = [];
+		const wData = [];
+		const vData = [];
+		var xCent = [];
+		var yCent = [];
+		var zCent = [];
+		var wCent = [];
+		var vCent = [];
+		var lCent = null;
+		var cmeans = false;
+		//var owner = [];
+
+		document.getElementById('fileInput').addEventListener('change', function(e) {
+			const file = e.target.files[0];
+			if (!file) return;
+
+			// Parse the CSV file using PapaParse
+			Papa.parse(file, {
+				dynamicTyping: true, // Automatically converts numbers from strings
+				skipEmptyLines: true,
+				complete: function(results) {
+					let dataRows = results.data;
+					
+					// Arrays to hold our 3D coordinates (check earlier)
+					const col = [];
+
+					// Loop through rows and extract the first 3 columns
+					dataRows = dataRows.slice(1, dataRows.length-1);
+					dataRows.forEach(row => {
+						xData.push(row[9]);
+						yData.push(row[5]);
+						zData.push(row[15]);
+						wData.push(row[13]);
+						vData.push(row[3]);
+						col.push(`rgb(${(row[13]+1.5)*255/3}, ${row[3]*51}, ${0})`)
+					});
+					//owner = Array().fill(null).map(() => Array(cols).fill(0));
+					// Create the 3D trace object
+					const trace1 = {
+						x: xData,
+						y: yData,
+						z: zData,
+						mode: 'markers',
+						type: 'scatter3d',
+						marker: {
+							size: 5,
+							opacity: 0.8,
+							color: col, //zData, // Color mapped to Z values
+							colorscale: 'Viridis'
+						}
+					};
+
+					const trace2 = {
+						x: [],//, Math.random() * (3) - 1.5],
+						y: [],//, Math.random() * (9)],
+						z: [],//, Math.random() * (2)],
+						mode: 'markers',
+						type: 'scatter3d',
+						marker: {
+							size: 10,
+							opacity: 0.8,
+							color: "red"
+						}
+					};
+
+					// Layout configuration
+					const layout = {
+						margin: { l: 0, r: 0, b: 0, t: 0 },
+						width: 800,  // Dimension in pixels
+  						height: 600,  // Dimension in pixels
+						scene: {
+							xaxis: { title: {text: 'x Risk' }},
+							yaxis: { title: {text: 'y No Face Contact' }},
+							zaxis: { title: {text: 'z Sick' }},
+							scene: { aspectmode: 'manual', aspectratio: {x: 1, y: 0.1, z: 1}}
+						}
+					};
+
+					// Render the plot
+					Plotly.newPlot('plot', [trace1, trace2], layout);
+				},
+				error: function(err) {
+					alert("Error parsing file: " + err.message);
+				}
+			});
+		});
+	const menu = document.getElementById('menu');
+
+	function initialize() {// Read input and randomly place that many centroids
+		let cents=dispVal1.value;
+		xCent = new Array(cents).fill(0);
+		yCent = new Array(cents).fill(0);
+		zCent = new Array(cents).fill(0);
+		wCent = new Array(cents).fill(0);
+		vCent = new Array(cents).fill(0);
+		for (let ci=0; ci<cents; ci++) {
+			xCent[ci]=randD(xData);
+			yCent[ci]=randD(yData);
+			zCent[ci]=randD(zData);
+			wCent[ci]=randD(wData);
+			vCent[ci]=randD(vData);
+		}
+		const update = {
+    		x: [xCent],
+    		y: [yCent],
+			z: [zCent]
+    		//'marker.color': 'red'
+		};
+		Plotly.restyle('plot', update, [1]);
+	}
+	
+	function step() {// run 1 step of k or c means
+		//if (!checkDiff()) {alert("clustering complete!"); return false;}
+		const cents=dispVal1.value;
+		const dim = dispVal2.value;
+		let sum = Array.from({ length: +dim }, () => new Array(+cents).fill(0));
+		let ccount = new Array(+cents).fill(0);
+		let vert = [xData, yData, zData, wData, vData];
+		let cent = [xCent, yCent, zCent, wCent, vCent];
+		lCent = structuredClone(cent);
+		if (cmeans==false) {// 1 step of k-means
+			for (i of xData.keys()) {// get sum of closest data
+				let closest=getClosest(i, dim);
+				for (ii=0; ii<dim; ii++) {
+					sum[ii][closest]+=vert[ii][i];
+				}
+				ccount[closest]+=1;
+			}
+			for (i=0; i<dim; i++) {// divide sum by count to get new mean
+				for (ii=0; ii<cents; ii++) {
+					//if (ccount[ii]===0) alert(ccount[ii]);
+					if (!ccount[ii]) console.log(`centroid ${ii} is orphaned: ${ccount[ii]}`);
+					else cent[i][ii]=sum[i][ii]/ccount[ii];
+				}
+			}
+			const update = {
+    			x: [xCent],
+    			y: [yCent],
+				z: [zCent],
+				'marker.color': 'red'
+			};
+			Plotly.restyle('plot', update, [1]);
+			console.log(`${xCent}\n${yCent}\n${zCent}`);
+		}
+		else {// 1 step of c-means
+			let M = +dispVal3.value;
+			let num = xData.length;
+			for (i of xData.keys()) {// get sum of closest data
+				let dist = (getRelative(i, dim));
+				//dist.forEach(val => {cSum+=val;});
+				for (ii of xCent.keys()) {
+					let cSum = 0;
+					for (ii2 of xCent.keys()) {
+						cSum+=(dist[ii]/dist[ii2])**(2/(M-1));
+					}
+					let c = 1/cSum;
+					ccount[ii]+=c**M;
+					for (iii = 0; iii<dim; iii++) {
+						sum[iii][ii]+=vert[iii][i]*((c)**M);
+						//if (!isFinite(sum[iii][ii])) {alert(`program can go no further: csum: ${sum[iii][ii]} ${vert[iii][i]} ${c}`);}
+					}
+				}
+			}
+			for (i=0; i<dim; i++) {
+				for (ii=0; ii<cents; ii++) {
+					let val = sum[i][ii]/ccount[ii];
+					if (!isFinite(val)) {alert(`program can go no further: sum: ${sum[i][ii]} ccount: ${ccount[ii]}`); return false};
+					cent[i][ii]=val;
+				}
+			}
+			const update = {
+    			x: [xCent],
+    			y: [yCent],
+				z: [zCent],
+				'marker.color': 'red'
+			};
+			Plotly.restyle('plot', update, [1]);
+			console.log(`${xCent}\n${yCent}\n${zCent}`);
+		}
+		if (!checkDiff()) return false;
+		return true;
+	}
+	function getDistance(vert1, vert2) {// return distance between two vertices of x dimensions
+		let sum = 0;
+		for (const i of vert1.keys()) {
+			sum += (vert1[i]-vert2[i])**2;
+		}
+		return Math.sqrt(sum);
+	}
+	function getClosest(di, dim) {
+		let vert1 = [xData[di], yData[di], zData[di], wData[di], vData[di]];
+		vert1 = vert1.slice(0, dim);
+		let dist = Infinity;
+		let closest = -1;
+		for (const ci of xCent.keys()) {
+			let vert2 = [xCent[ci], yCent[ci], zCent[ci], wCent[ci], vCent[ci]];
+			vert2 = vert2.slice(0, dim);
+			if (getDistance(vert1, vert2) < dist) {dist = getDistance(vert1, vert2); /*owner[di].fill(0); owner[di][ci] = 1;*/ closest=ci;}
+		}
+		return closest;
+	}
+	function getRelative(di, dim) {
+		let vert1 = [xData[di], yData[di], zData[di], wData[di], vData[di]];
+		vert1 = vert1.slice(0, dim);
+		let dist = Infinity; 
+		let closest = -1;
+		let dists = [];
+		for (const ci of xCent.keys()) {
+			let vert2 = [xCent[ci], yCent[ci], zCent[ci], wCent[ci], vCent[ci]];
+			vert2 = vert2.slice(0, dim);
+			dists.push(getDistance(vert1, vert2))
+		}
+		return dists;
+	}
+	for (i of xData.keys()) {
+		getClosest(i, 3);
+	}
+	
+	function dunnIndex() {//FIXME
+		let distmin = Infinity;
+		let distmax = 0;
+		const cents= +dispVal1.value;
+		const dim = +dispVal2.value;
+		let vert = [xData, yData, zData, wData, vData];
+		//vert = vert.slice(0, dim);
+		let cent = [xCent, yCent, zCent, wCent, vCent];
+		//vert = cent.slice(0, dim);
+		let ccount = new Array(+cents).fill(0);
+		let sortData = Array.from({ length: cents }, () => Array.from({ length: dim }, () => []));
+		//let sortData = [];
+		//for {i=0; cents=}
+		//get span of each cluster
+		for (const i of xData.keys()) {
+			const closest=getClosest(i, dim);
+			for (di=0; di<dim; di++) {
+				sortData[closest][di].push(vert[di][i]);
+			}
+			(sortData[closest]);
+			ccount[closest]+=1;
+		}
+		console.log(sortData);
+		for (i1=0; i1<cents; i1++) {
+			let cent1 = [xCent[i1], yCent[i1], zCent[i1], wCent[i1], vCent[i1]];
+			cent1 = cent1.slice(0, dim);
+			for (i2=0; i2<cents; i2++) {
+				if (i1==i2) continue;
+				let cent2 = [xCent[i2], yCent[i2], zCent[i2], wCent[i2], vCent[i2]];
+				cent2 = cent2.slice(0, dim);
+				distmin=Math.min(getDistance(cent1, cent2),distmin);
+			}
+			for (i2 of sortData[i1][0].keys()) {
+				let vert1 = [];
+				for (ii=0; ii<dim; ii++) {vert1.push(sortData[i1][ii][i2])}
+				//alert(vert1);
+				for (i3 of sortData[i1][0].keys()) {
+					if (i2==i3) continue;
+					let vert2 = [];
+					for (ii=0; ii<dim; ii++) {vert2.push(sortData[i1][ii][i3])}
+					distmax=Math.max(getDistance(vert1, vert2),distmax);
+				}
+			}
+		}
+		dispVal4.value=distmin/distmax;
+	}
+	function checkDiff() {
+		const cents=dispVal1.value;
+		const dim = dispVal2.value;
+		let max=0;
+		if (lCent===null) return true;
+		let nCent = [xCent, yCent, zCent, wCent, vCent];
+		for(i=0; i<cents; i++) {
+			let vert1 = [];
+			let vert2 = [];
+			for (ii=0; ii<dim; ii++) {
+				vert1.push(nCent[ii][i]);
+				vert2.push(lCent[ii][i]);
+			}
+			max=Math.max(getDistance(vert1,vert2), max);
+		}
+		if (max===NaN) {alert("an error occured"); return false;}
+		if (max<0.001) {alert("Clustering Complete!"); return false;}
+		else return true;
+	}
+	function finish() {while(step()) {}}
+	</script>
+</body>
+</html>
