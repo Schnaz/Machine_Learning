@@ -1,2 +1,2 @@
 # Machine_Learning
-Project for Machine Learning and Data Science course at WSU
+Projects for Machine Learning and Data Science course at WSU
